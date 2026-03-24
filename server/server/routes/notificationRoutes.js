@@ -1,0 +1,1 @@
+const router=require('express').Router(); const {protect}=require('../middleware/authMiddleware'); const {getNotifications,markRead,markAllRead}=require('../controllers/notificationController'); router.get('/',protect,getNotifications); router.patch('/:id/read',protect,markRead); router.post('/mark-all-read',protect,markAllRead); module.exports=router;

@@ -1,0 +1,1 @@
+const router=require('express').Router(); const {protect}=require('../middleware/authMiddleware'); const {updateProfile,listUsers}=require('../controllers/userController'); router.get('/',protect,listUsers); router.patch('/profile',protect,updateProfile); module.exports=router;
