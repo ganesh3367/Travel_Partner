@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 
-export default function UserCard({ user, online }) { 
+export default function UserCard({ user, online, onMessage, onViewProfile, isSelf }) { 
   return (
-    <div className='card card-hover p-5'>
+    <div className='card card-hover p-5 h-full flex flex-col'>
       <div className='flex items-center gap-4'>
         <div className="relative shrink-0">
           <img 
@@ -21,14 +21,16 @@ export default function UserCard({ user, online }) {
         </div>
       </div>
       
-      <p className='text-sm text-gray-600 mt-4 leading-relaxed line-clamp-2'>
+      <p className='text-sm text-gray-600 mt-4 leading-relaxed line-clamp-2 flex-grow'>
         {user.bio || 'This traveler prefers to keep their bio mysterious. Reach out to learn more!'}
       </p>
       
-      <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-2">
-        <button className="btn-secondary py-1.5 px-4 text-sm">View Profile</button>
-        <button className="btn-primary py-1.5 px-4 text-sm shadow-md">Message</button>
-      </div>
+      {!isSelf && (
+        <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-2">
+          {onViewProfile && <button onClick={onViewProfile} className="btn-secondary py-1.5 px-4 text-sm">View Profile</button>}
+          {onMessage && <button onClick={onMessage} className="btn-primary py-1.5 px-4 text-sm shadow-md">Message</button>}
+        </div>
+      )}
     </div>
   ); 
 }

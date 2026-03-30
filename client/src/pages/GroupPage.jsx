@@ -29,8 +29,18 @@ export default function GroupPage() {
   }, []);
 
   const loadGroups = async () => {
-    const r = await api.get('/groups');
-    setGroups(r.data);
+    try {
+      const response = await fetch(`${API_BASE}/groups`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('travelbuddy_token')}`
+        }
+      });
+      if (!response.ok) throw new Error('Failed to fetch groups');
+      const data = await response.json();
+      setGroups(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -45,8 +55,9 @@ export default function GroupPage() {
     socket.on('disconnect', onDisconnect);
 
     const onGroupMessage = (m) => {
-      if (!selectedGroup) return;
-      if (String(m.groupId) !== String(selectedGroup._id)) return;
+      const gId = selectedGroup?.id || selectedGroup?._id;
+      if (!selectedGroup || !gId) return;
+      if (String(m.groupId) !== String(gId)) return;
       setMessages((prev) => [...prev, m]);
     };
 
@@ -61,10 +72,25 @@ export default function GroupPage() {
   }, [socket, selectedGroup]);
 
   useEffect(() => {
-    if (!selectedGroup) return;
-    socket.emit('group:join', selectedGroup._id);
-    api.get(`/messages/group/${selectedGroup._id}`).then((r) => setMessages(r.data));
-  }, [selectedGroup, socket]);
+    const gId = selectedGroup?.id || selectedGroup?._id;
+    if (!gId || !socket) return;
+    socket.emit('group:join', gId);
+    
+    const fetchDetails = async () => {
+      try {
+        const [msgRes, detailRes] = await Promise.all([
+          api.get(`/messages/group/${gId}`),
+          api.get(`/groups/${gId}`)
+        ]);
+        setMessages(msgRes.data);
+        setSelectedGroup(detailRes.data); // Update with full details including requests
+      } catch (err) {
+        console.error('Failed to fetch details', err);
+      }
+    };
+    
+    fetchDetails();
+  }, [selectedGroup?.id, selectedGroup?._id, socket]);
 
   useEffect(() => {
     if (!inviteQuery.trim()) {
@@ -79,7 +105,15 @@ export default function GroupPage() {
     return () => clearTimeout(id);
   }, [inviteQuery, user]);
 
-  const isMember = (group) => !!group?.members?.some((m) => String(m._id || m) === String(user?._id));
+  const isMember = (group) => {
+    const userId = user?.id || user?._id;
+    return !!group?.members?.some((m) => String(m.id || m._id || m) === String(userId));
+  };
+
+  const isAdmin = (group) => {
+    const userId = user?.id || user?._id;
+    return !!group?.admins?.some((id) => String(id) === String(userId));
+  };
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 h-full">
@@ -133,16 +167,19 @@ export default function GroupPage() {
         <div className='grid lg:grid-cols-[350px_1fr] gap-6 flex-grow min-h-0'>
           {/* Group List Sidebar */}
           <div className='flex flex-col space-y-4 overflow-y-auto pr-2 pb-4 max-h-full'>
-            {groups.map((g) => (
-              <button
-                key={g._id}
-                className={`w-full text-left card p-5 transition-all duration-200 ${
-                  selectedGroup?._id === g._id 
-                  ? 'ring-2 ring-primary-500 shadow-md transform scale-[1.02] bg-primary-50/10' 
-                  : 'hover:shadow-md hover:-translate-y-1 opacity-90 hover:opacity-100'
-                }`}
-                onClick={() => setSelectedGroup(g)}
-              >
+            {groups.map((g) => {
+              const gId = g.id || g._id;
+              const selectedId = selectedGroup?.id || selectedGroup?._id;
+              return (
+                <button
+                  key={gId}
+                  className={`w-full text-left card p-5 transition-all duration-200 ${
+                    selectedId === gId 
+                    ? 'ring-2 ring-primary-500 shadow-md transform scale-[1.02] bg-primary-50/10' 
+                    : 'hover:shadow-md hover:-translate-y-1 opacity-90 hover:opacity-100'
+                  }`}
+                  onClick={() => setSelectedGroup(g)}
+                >
                 <div className='flex items-start justify-between gap-3'>
                   <div>
                     <h3 className='font-bold text-lg text-gray-900'>{g.groupName}</h3>
@@ -157,7 +194,8 @@ export default function GroupPage() {
                   )}
                 </div>
               </button>
-            ))}
+            );
+            })}
             {groups.length === 0 && (
               <div className='card p-10 text-center flex flex-col items-center gap-3'>
                 <MapIcon className="w-12 h-12 text-gray-300" />
@@ -194,7 +232,8 @@ export default function GroupPage() {
                         <button
                           className='bg-white text-primary-700 hover:bg-gray-50 px-6 py-2.5 rounded-xl font-bold shadow-lg transition-all active:scale-95'
                           onClick={async () => {
-                            await api.post(`/groups/${selectedGroup._id}/request-join`);
+                            const gId = selectedGroup.id || selectedGroup._id;
+                            await api.post(`/groups/${gId}/request-join`);
                             toast.success('Join request sent to group admins');
                           }}
                         >
@@ -207,6 +246,52 @@ export default function GroupPage() {
 
                 {isMember(selectedGroup) && (
                   <>
+                    {/* Manage Requests Support */}
+                    {isAdmin(selectedGroup) && (selectedGroup.joinRequests?.length > 0) && (
+                      <div className='card p-5 shrink-0 border border-orange-100 bg-orange-50/20'>
+                        <h3 className='font-bold text-gray-900 mb-3 flex items-center gap-2'>
+                          <UsersIcon className="w-5 h-5 text-orange-500" /> Pending Join Requests
+                        </h3>
+                        <div className="space-y-3">
+                          {selectedGroup.joinRequests.map(req => (
+                            <div key={req.id || req._id} className="flex items-center justify-between p-3 bg-white rounded-xl shadow-sm border border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <img src={req.profileImage || `https://api.dicebear.com/7.x/notionists/svg?seed=${req.name}`} className="w-8 h-8 rounded-full" alt="avatar" />
+                                <span className="font-bold text-gray-800 text-sm">{req.name}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <button 
+                                  className="px-3 py-1 bg-green-500 text-white rounded-lg text-xs font-bold hover:bg-green-600 transition-colors"
+                                  onClick={async () => {
+                                    const gId = selectedGroup.id || selectedGroup._id;
+                                    await api.post(`/groups/${gId}/respond-join`, { requesterId: req.id || req._id, action: 'accept' });
+                                    toast.success('Accepted!');
+                                    // Full refresh to update members list
+                                    const { data } = await api.get(`/groups/${gId}`);
+                                    setSelectedGroup(data);
+                                  }}
+                                >
+                                  Accept
+                                </button>
+                                <button 
+                                  className="px-3 py-1 bg-gray-200 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-300 transition-colors"
+                                  onClick={async () => {
+                                    const gId = selectedGroup.id || selectedGroup._id;
+                                    await api.post(`/groups/${gId}/respond-join`, { requesterId: req.id || req._id, action: 'reject' });
+                                    toast.success('Declined');
+                                    const { data } = await api.get(`/groups/${gId}`);
+                                    setSelectedGroup(data);
+                                  }}
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Invite Tools */}
                     <div className='card p-5 shrink-0 border border-primary-100 bg-primary-50/30'>
                       <h3 className='font-bold text-gray-900 mb-3 flex items-center gap-2'>
@@ -227,10 +312,11 @@ export default function GroupPage() {
                               {inviteResults.map((u) => (
                                 <motion.button
                                   initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                                  key={u._id}
+                                  key={u.id || u._id}
                                   className='text-left relative group'
                                   onClick={async () => {
-                                    await api.post(`/groups/${selectedGroup._id}/invite`, { userId: u._id });
+                                    const gId = selectedGroup.id || selectedGroup._id;
+                                    await api.post(`/groups/${gId}/invite`, { userId: u.id || u._id });
                                     toast.success(`Invitation sent to ${u.name}`);
                                     setInviteQuery('');
                                   }}
@@ -256,10 +342,11 @@ export default function GroupPage() {
                     <div className="flex-grow min-h-0 relative card overflow-hidden border border-gray-200">
                       <div className="absolute inset-0">
                         <ChatBox
-                          selfId={user._id}
+                          selfId={user?.id || user?._id}
                           messages={messages}
                           onSend={async (text) => {
-                            socket.emit('group:send', { groupId: selectedGroup._id, message: text });
+                            const gId = selectedGroup.id || selectedGroup._id;
+                            socket.emit('group:send', { groupId: gId, message: text });
                           }}
                         />
                       </div>

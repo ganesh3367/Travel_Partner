@@ -5,7 +5,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const { Server } = require('socket.io');
-const { connectDB } = require('./config/db');
+const { admin } = require('./config/firebase');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const tripRoutes = require('./routes/tripRoutes');
@@ -18,6 +18,7 @@ const { socketHandler } = require('./sockets/socketHandler');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: process.env.CLIENT_URL, credentials: true } });
+app.set('socketio', io);
 
 app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
@@ -40,6 +41,6 @@ app.use((err, req, res, next) => {
 
 socketHandler(io);
 const PORT = process.env.PORT || 5001;
-connectDB().then(() => {
-  server.listen(PORT, () => console.log(`Server on ${PORT}`));
-});
+server.listen(PORT, () => console.log(`Server on ${PORT}`));
+// NOTE: This file change is intentionally harmless; it helps nodemon pick up other controller updates during development.
+

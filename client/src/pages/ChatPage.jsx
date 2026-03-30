@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChatBox from '../components/ChatBox';
 import UserCard from '../components/UserCard';
@@ -9,6 +10,7 @@ import { API_BASE } from '../utils/constants';
 import { ChatBubbleBottomCenterTextIcon } from '@heroicons/react/24/outline';
 
 export default function ChatPage() {
+  const location = useLocation();
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -23,8 +25,18 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!user) return;
-    api.get('/users').then((r) => setUsers(r.data.filter((u) => u._id !== user._id)));
-  }, [user]);
+    const userId = user.id || user._id;
+    api.get('/users').then((r) => {
+      const filtered = r.data.filter((u) => (u.id || u._id) !== userId);
+      setUsers(filtered);
+      
+      // Auto-select user if passed in state (e.g. from Explore page)
+      if (location.state?.userId) {
+        const found = filtered.find(u => (u.id || u._id) === location.state.userId);
+        if (found) setSelected(found);
+      }
+    });
+  }, [user, location.state]);
 
   useEffect(() => {
     if (!user) return;
@@ -32,7 +44,8 @@ export default function ChatPage() {
     const onPresence = (ids) => setOnlineUsers(ids);
     const onChat = (m) => {
       if (!selected) return;
-      if (String(m.senderId) !== String(selected._id) && String(m.receiverId) !== String(selected._id)) return;
+      const sId = selected.id || selected._id;
+      if (String(m.senderId) !== String(sId) && String(m.receiverId) !== String(sId)) return;
       setMessages((prev) => [...prev, m]);
     };
     const onTypingStart = ({ senderId }) => setTypingUsers((p) => [...new Set([...p, senderId])]);
@@ -40,8 +53,8 @@ export default function ChatPage() {
 
     socket.on('presence:update', onPresence);
     socket.on('chat:message', onChat);
-    socket.on('typing:start', onTypingStart);
-    socket.on('typing:stop', onTypingStop);
+    socket.on('typing:start', ({ senderId }) => setTypingUsers((p) => [...new Set([...p, senderId])]));
+    socket.on('typing:stop', ({ senderId }) => setTypingUsers((p) => p.filter((id) => id !== senderId)));
 
     return () => {
       socket.off('presence:update', onPresence);
@@ -54,7 +67,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!selected) return;
-    api.get(`/messages/${selected._id}`).then((r) => setMessages(r.data));
+    const sId = selected.id || selected._id;
+    api.get(`/messages/${sId}`).then((r) => setMessages(r.data));
   }, [selected]);
 
   return (
@@ -72,15 +86,19 @@ export default function ChatPage() {
               <h2 className="font-semibold text-gray-700">Conversations</h2>
             </div>
             <div className='overflow-y-auto w-full p-3 space-y-2 flex-grow'>
-              {users.map((u) => (
-                <button 
-                  className={`w-full text-left rounded-2xl transition-all duration-200 ${selected?._id === u._id ? 'ring-2 ring-primary-500 shadow-md transform scale-[1.02]' : 'hover:bg-gray-50 opacity-80 hover:opacity-100'}`} 
-                  key={u._id} 
-                  onClick={() => setSelected(u)}
-                >
-                  <UserCard user={u} online={onlineUsers.includes(u._id)} />
-                </button>
-              ))}
+              {users.map((u) => {
+                const uId = u.id || u._id;
+                const sId = selected?.id || selected?._id;
+                return (
+                  <button 
+                    className={`w-full text-left rounded-2xl transition-all duration-200 ${sId === uId ? 'ring-2 ring-primary-500 shadow-md transform scale-[1.02]' : 'hover:bg-gray-50 opacity-80 hover:opacity-100'}`} 
+                    key={uId} 
+                    onClick={() => setSelected(u)}
+                  >
+                    <UserCard user={u} online={onlineUsers.includes(uId)} />
+                  </button>
+                );
+              })}
               {users.length === 0 && (
                 <div className="text-center p-8 text-gray-500 text-sm">No connections yet. Start matching!</div>
               )}
@@ -109,11 +127,11 @@ export default function ChatPage() {
                 <div className="flex-grow overflow-hidden relative">
                   <div className="absolute inset-0">
                     <ChatBox
-                      selfId={user._id}
+                      selfId={user.id || user._id}
                       messages={messages}
-                      isTyping={typingUsers.includes(selected._id)}
-                      onSend={(message) => socket.emit('chat:send', { receiverId: selected._id, message })}
-                      onTyping={(isTyping) => socket.emit(isTyping ? 'typing:start' : 'typing:stop', { receiverId: selected._id })}
+                      isTyping={typingUsers.includes(selected.id || selected._id)}
+                      onSend={(message) => socket.emit('chat:send', { receiverId: selected.id || selected._id, message })}
+                      onTyping={(isTyping) => socket.emit(isTyping ? 'typing:start' : 'typing:stop', { receiverId: selected.id || selected._id })}
                     />
                   </div>
                 </div>

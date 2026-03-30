@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import SearchBar from '../components/SearchBar';
@@ -9,6 +10,7 @@ import useDebounce from '../hooks/useDebounce';
 import api from '../services/api';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/20/solid';
+import { useAuth } from '../context/AuthContext';
 
 const staggerContainer = {
   hidden: { opacity: 0 },
@@ -24,6 +26,8 @@ const fadeUp = {
 };
 
 export default function ExploreTravelersPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState({ startDate: '', endDate: '', budgetMin: 0, budgetMax: 5000 });
   const [travelers, setTravelers] = useState([]);
@@ -103,11 +107,19 @@ export default function ExploreTravelersPage() {
                 animate="visible" 
                 className='grid sm:grid-cols-2 gap-4'
               >
-                {travelers.map((u) => (
-                  <motion.div variants={fadeUp} key={u._id}>
-                    <UserCard user={u} />
-                  </motion.div>
-                ))}
+                {travelers.map((u) => {
+                  const uId = u.id || u._id;
+                  const myId = user?.id || user?._id;
+                  return (
+                    <motion.div variants={fadeUp} key={uId}>
+                      <UserCard 
+                        user={u} 
+                        isSelf={uId === myId}
+                        onMessage={() => navigate('/chat', { state: { userId: uId } })}
+                      />
+                    </motion.div>
+                  );
+                })}
               </motion.div>
             )}
 

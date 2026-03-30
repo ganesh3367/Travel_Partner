@@ -1,7 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Message = require('../models/Message');
-const Notification = require('../models/Notification');
-const Group = require('../models/Group');
+const { db, admin } = require('../config/firebase');
 
 const onlineUsers = new Map(); // userId -> Set<socketId>
 
@@ -19,6 +17,11 @@ function socketHandler(io) {
   });
 
   io.on('connection', (socket) => {
+    if (!db) {
+      console.error('Socket connected but Firebase not initialized');
+      return;
+    }
+    
     const userId = socket.userId;
     
     // Join a room specific to this user so we can emit to all their active tabs/devices!
@@ -40,20 +43,28 @@ function socketHandler(io) {
     socket.on('chat:send', async ({ receiverId, message }) => {
       if (!receiverId || !message) return;
 
-      const saved = await Message.create({
+      const messageData = {
         senderId: userId,
         receiverId,
         message,
-        timestamp: new Date(),
-      });
+        timestamp: new Date().toISOString(),
+        isRead: false
+      };
 
-      const notification = await Notification.create({
+      const messageRef = await db.collection('messages').add(messageData);
+      const saved = { id: messageRef.id, ...messageData };
+
+      const notificationData = {
         userId: receiverId,
         type: 'message',
         title: 'New message',
         body: message,
         senderId: userId,
-      });
+        createdAt: new Date().toISOString()
+      };
+
+      const notificationRef = await db.collection('notifications').add(notificationData);
+      const notification = { id: notificationRef.id, ...notificationData };
 
       // Emit to all tabs/devices of the receiver
       io.to(receiverId).emit('chat:message', saved);
@@ -81,36 +92,47 @@ function socketHandler(io) {
     socket.on('group:send', async ({ groupId, message }) => {
       if (!groupId || !message) return;
 
-      const group = await Group.findById(groupId).select('members');
-      if (!group) return;
+      const groupRef = db.collection('groups').doc(groupId);
+      const groupDoc = await groupRef.get();
+      if (!groupDoc.exists) return;
 
-      if (!group.members.some((m) => String(m) === String(userId))) return;
+      const groupData = groupDoc.data();
+      if (!groupData.members.includes(userId)) return;
 
-      const saved = await Message.create({
+      const messageData = {
         senderId: userId,
         groupId,
         message,
-        timestamp: new Date(),
-      });
+        timestamp: new Date().toISOString(),
+      };
 
-      await Group.findByIdAndUpdate(groupId, { $addToSet: { messages: saved._id } });
+      const messageRef = await db.collection('messages').add(messageData);
+      const saved = { id: messageRef.id, ...messageData };
 
-      const otherMembers = group.members.filter((m) => String(m) !== String(userId));
+      const otherMembers = groupData.members.filter((m) => m !== userId);
       if (otherMembers.length > 0) {
-        const notifications = await Notification.insertMany(
-          otherMembers.map((memberId) => ({
+        const batch = db.batch();
+        const notificationPromises = otherMembers.map(async (memberId) => {
+          const nRef = db.collection('notifications').doc();
+          const nData = {
             userId: memberId,
             type: 'message',
             title: `New message in group`,
             body: message,
             groupId,
             senderId: userId,
-          }))
-        );
+            createdAt: new Date().toISOString()
+          };
+          batch.set(nRef, nData);
+          return { id: nRef.id, ...nData };
+        });
 
-        for (const n of notifications) {
-          io.to(String(n.userId)).emit('notifications:new', n);
-        }
+        const notifications = await Promise.all(notificationPromises);
+        await batch.commit();
+
+        notifications.forEach((n) => {
+          io.to(n.userId).emit('notifications:new', n);
+        });
       }
 
       io.to(groupId).emit('group:message', saved);
@@ -130,3 +152,4 @@ function socketHandler(io) {
 }
 
 module.exports = { socketHandler };
+

@@ -30,9 +30,9 @@ export default function InteractiveMap({ onSelectDestination }) {
       />
 
       {/* Decorative Connection Lines */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
-        <path d="M 25% 32% Q 36% 15% 48% 30% T 60% 45%" fill="none" stroke="#5EEAD4" strokeWidth="2" strokeDasharray="4 4" className="animate-[dash_20s_linear_infinite]" />
-        <path d="M 60% 45% Q 67% 60% 75% 65% T 88% 80%" fill="none" stroke="#5EEAD4" strokeWidth="2" strokeDasharray="4 4" className="animate-[dash_20s_linear_infinite]" />
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none opacity-20">
+        <path d="M 25 32 Q 36 15 48 30 T 60 45" fill="none" stroke="#5EEAD4" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeDasharray="4 4" className="animate-[dash_20s_linear_infinite]" />
+        <path d="M 60 45 Q 67 60 75 65 T 88 80" fill="none" stroke="#5EEAD4" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeDasharray="4 4" className="animate-[dash_20s_linear_infinite]" />
       </svg>
 
       <style>{`

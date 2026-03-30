@@ -55,8 +55,9 @@ export default function Header() {
   };
 
   const navLinks = [
-    { label: 'Explore', path: '/explore' },
-    { label: 'Trips', path: '/dashboard' },
+    { label: 'Discover', path: '/trips/explore' },
+    { label: 'Matching', path: '/explore' },
+    { label: 'My Trips', path: '/dashboard' },
     { label: 'Chat', path: '/chat' },
     { label: 'Groups', path: '/groups' }
   ];
