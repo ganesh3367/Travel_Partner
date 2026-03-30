@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api';
 import TripCard from '../components/TripCard';
 import Loader from '../components/Loader';
 import Modal from '../components/Modal';
-import { CheckIcon, XMarkIcon, MapIcon } from '@heroicons/react/24/solid';
+import {
+  CalendarDaysIcon,
+  ChatBubbleLeftRightIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  SparklesIcon,
+  UserGroupIcon
+} from '@heroicons/react/24/outline';
 
 const staggerContainer = {
   hidden: { opacity: 0 },
@@ -25,9 +32,9 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const [manageOpen, setManageOpen] = useState(false);
-  const [managingTrip, setManagingTrip] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('startDateAsc');
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -56,6 +63,81 @@ export default function DashboardPage() {
     load();
   }, []);
 
+  const enrichedTrips = useMemo(() => {
+    const todaysDate = new Date();
+    todaysDate.setHours(0, 0, 0, 0);
+
+    const getStatus = (startDate, endDate) => {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+
+      if (todaysDate < start) return 'upcoming';
+      if (todaysDate > end) return 'completed';
+      return 'ongoing';
+    };
+
+    return trips.map((trip) => {
+      const start = new Date(trip.startDate);
+      const end = new Date(trip.endDate);
+      const status = getStatus(trip.startDate, trip.endDate);
+      const daysUntilStart = Math.ceil((start - todaysDate) / (1000 * 60 * 60 * 24));
+
+      return {
+        ...trip,
+        status,
+        startDateObj: start,
+        endDateObj: end,
+        daysUntilStart
+      };
+    });
+  }, [trips]);
+
+  const filteredTrips = useMemo(() => {
+    let result = [...enrichedTrips];
+
+    if (statusFilter !== 'all') {
+      result = result.filter((trip) => trip.status === statusFilter);
+    }
+
+    if (searchTerm.trim()) {
+      const query = searchTerm.trim().toLowerCase();
+      result = result.filter(
+        (trip) =>
+          (trip.destination || '').toLowerCase().includes(query) ||
+          (trip.description || '').toLowerCase().includes(query) ||
+          (trip.tripType || '').toLowerCase().includes(query)
+      );
+    }
+
+    result.sort((a, b) => {
+      if (sortBy === 'startDateAsc') return a.startDateObj - b.startDateObj;
+      if (sortBy === 'startDateDesc') return b.startDateObj - a.startDateObj;
+      if (sortBy === 'budgetAsc') return Number(a.budget || 0) - Number(b.budget || 0);
+      if (sortBy === 'budgetDesc') return Number(b.budget || 0) - Number(a.budget || 0);
+      if (sortBy === 'requestsDesc') return (b.joinRequests?.length || 0) - (a.joinRequests?.length || 0);
+      return 0;
+    });
+
+    return result;
+  }, [enrichedTrips, searchTerm, sortBy, statusFilter]);
+
+  const dashboardStats = useMemo(() => {
+    const totalTrips = enrichedTrips.length;
+    const upcomingTrips = enrichedTrips.filter((trip) => trip.status === 'upcoming').length;
+    const ongoingTrips = enrichedTrips.filter((trip) => trip.status === 'ongoing').length;
+    const pendingRequests = enrichedTrips.reduce((acc, trip) => acc + (trip.joinRequests?.length || 0), 0);
+
+    return { totalTrips, upcomingTrips, ongoingTrips, pendingRequests };
+  }, [enrichedTrips]);
+
+  const nextUpcomingTrip = useMemo(() => {
+    return enrichedTrips
+      .filter((trip) => trip.status === 'upcoming')
+      .sort((a, b) => a.startDateObj - b.startDateObj)[0];
+  }, [enrichedTrips]);
+
   const openEdit = (trip) => {
     setEditingId(trip._id || trip.id);
     setEditForm({
@@ -70,58 +152,78 @@ export default function DashboardPage() {
   };
 
   const openManageRequests = (trip) => {
-    setManagingTrip(trip);
-    setManageOpen(true);
-  };
-
-  const handleRequest = async (tripId, requesterId, action) => {
-    try {
-      const { data } = await api.patch(`/trips/${tripId}/respond`, { action, requesterId });
-      toast.success(action === 'accept' ? 'Request accepted!' : 'Request declined');
-      setManagingTrip(data);
-      setTrips(prev => prev.map(t => (t._id || t.id) === tripId ? data : t));
-      if (data.joinRequests?.length === 0) setManageOpen(false);
-    } catch (err) {
-      toast.error(err.response?.data?.message || `Failed to ${action} request`);
-    }
+    navigate(`/trips/${trip._id || trip.id}`);
   };
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 h-full">
       <div className="space-y-10">
-        {/* Process Guide - How it Works */}
+        {/* Command Center */}
         <motion.section 
           variants={fadeUp}
           initial="hidden"
           animate="visible"
-          className="bg-white rounded-[2.5rem] p-8 md:p-12 shadow-sm border border-gray-100 overflow-hidden relative"
+          className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-[2.5rem] p-8 md:p-10 shadow-sm overflow-hidden relative text-white"
         >
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary-50 rounded-full -mr-16 -mt-16 blur-3xl opacity-50"></div>
-          <div className="relative z-10">
-            <h2 className="text-2xl font-black text-gray-900 mb-8 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-3m0 0V9m0 6l-3-3m3 3l3-3M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+          <div className="absolute -top-20 -right-24 w-72 h-72 bg-cyan-500/20 rounded-full blur-3xl" />
+          <div className="absolute -bottom-20 -left-20 w-72 h-72 bg-indigo-400/20 rounded-full blur-3xl" />
+          <div className="relative z-10 space-y-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              <div>
+                <p className="inline-flex items-center gap-2 text-xs tracking-[0.2em] uppercase bg-white/10 border border-white/20 px-3 py-1 rounded-full">
+                  <SparklesIcon className="w-4 h-4" />
+                  Trip Command Center
+                </p>
+                <h1 className="text-3xl md:text-4xl font-black tracking-tight mt-3">Plan Better. Host Better. Travel Better.</h1>
+                <p className="text-slate-300 mt-2">Everything important for your trips, requests, and chats in one place.</p>
               </div>
-              How TravelBuddy Works
-            </h2>
-            <div className="grid md:grid-cols-3 gap-8">
+              <div className="flex flex-wrap gap-2">
+                <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-slate-900 font-bold" onClick={() => navigate('/trips/create')}>
+                  <PlusIcon className="w-4 h-4" />
+                  New Trip
+                </button>
+                <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 font-semibold" onClick={() => navigate('/groups')}>
+                  <UserGroupIcon className="w-4 h-4" />
+                  Groups
+                </button>
+                <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 font-semibold" onClick={() => navigate('/chat')}>
+                  <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                  Messages
+                </button>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
               {[
-                { step: 1, title: 'Make a Trip', desc: 'Post your destination, dates, and budget in minutes.', icon: '✍️' },
-                { step: 2, title: 'Match Travelers', desc: 'Find explorers who align with your time and style.', icon: '🔍' },
-                { step: 3, title: 'Chat & Coordinate', desc: 'Join squad groups and plan every detail together.', icon: '💬' }
-              ].map((item) => (
-                <div key={item.step} className="relative group">
-                  <div className="absolute -left-4 -top-4 text-4xl font-black text-gray-50 opacity-10 group-hover:opacity-20 transition-opacity">0{item.step}</div>
-                  <div className="relative">
-                    <div className="text-3xl mb-4 text-gray-900">{item.icon}</div>
-                    <h3 className="font-bold text-gray-900 mb-2">{item.title}</h3>
-                    <p className="text-gray-500 text-sm leading-relaxed">{item.desc}</p>
-                  </div>
+                { label: 'Total Trips', value: dashboardStats.totalTrips },
+                { label: 'Upcoming', value: dashboardStats.upcomingTrips },
+                { label: 'Ongoing', value: dashboardStats.ongoingTrips },
+                { label: 'Pending Requests', value: dashboardStats.pendingRequests }
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-white/15 bg-white/5 p-4">
+                  <p className="text-slate-300 text-sm">{stat.label}</p>
+                  <p className="text-2xl font-black mt-1">{stat.value}</p>
                 </div>
               ))}
             </div>
+
+            {nextUpcomingTrip && (
+              <div className="rounded-2xl border border-cyan-300/30 bg-cyan-400/10 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-cyan-100/80">Next Departure</p>
+                  <p className="font-bold text-lg">{nextUpcomingTrip.destination}</p>
+                  <p className="text-sm text-slate-200">
+                    Starts {new Date(nextUpcomingTrip.startDate).toLocaleDateString()} ({nextUpcomingTrip.daysUntilStart} day{nextUpcomingTrip.daysUntilStart === 1 ? '' : 's'} to go)
+                  </p>
+                </div>
+                <button
+                  className="px-4 py-2 rounded-xl bg-white text-slate-900 font-bold"
+                  onClick={() => navigate(`/trips/${nextUpcomingTrip.id || nextUpcomingTrip._id}`)}
+                >
+                  Open Trip
+                </button>
+              </div>
+            )}
           </div>
         </motion.section>
 
@@ -135,6 +237,43 @@ export default function DashboardPage() {
               + Create New Trip
             </button>
           </div>
+
+          {trips.length > 0 && (
+            <div className="mt-6 grid lg:grid-cols-[1fr_auto_auto] gap-3">
+              <div className="relative">
+                <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  className="input pl-10 bg-white"
+                  placeholder="Search destination, type, or description..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <select
+                className="input bg-white min-w-[180px]"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Statuses</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
+              </select>
+
+              <select
+                className="input bg-white min-w-[220px]"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="startDateAsc">Sort: Start Date (Soonest)</option>
+                <option value="startDateDesc">Sort: Start Date (Latest)</option>
+                <option value="budgetAsc">Sort: Budget (Low to High)</option>
+                <option value="budgetDesc">Sort: Budget (High to Low)</option>
+                <option value="requestsDesc">Sort: Most Join Requests</option>
+              </select>
+            </div>
+          )}
 
           <div className="mt-8">
             {loading ? (
@@ -152,6 +291,24 @@ export default function DashboardPage() {
                   Start Your First Trip
                 </button>
               </motion.div>
+            ) : filteredTrips.length === 0 ? (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className='card p-12 text-center text-gray-500'>
+                <div className="w-14 h-14 rounded-full bg-gray-100 mx-auto flex items-center justify-center mb-4">
+                  <CalendarDaysIcon className="w-7 h-7 text-gray-400" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">No trips match your filters</h3>
+                <p className="mt-2">Try changing search text, status filter, or sort options.</p>
+                <button
+                  className="btn-secondary mt-5"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setStatusFilter('all');
+                    setSortBy('startDateAsc');
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </motion.div>
             ) : (
               <motion.div 
                 variants={staggerContainer} 
@@ -160,7 +317,7 @@ export default function DashboardPage() {
                 className='grid lg:grid-cols-2 xl:grid-cols-3 gap-6'
               >
                 <AnimatePresence>
-                  {trips.map((t) => (
+                  {filteredTrips.map((t) => (
                     <motion.div variants={fadeUp} key={t._id || t.id} layout exit={{ opacity: 0, scale: 0.9 }}>
                       <TripCard
                         trip={t}
@@ -279,37 +436,6 @@ export default function DashboardPage() {
               <button type="submit" className='btn-primary flex-1'>Save Changes</button>
             </div>
           </form>
-        </Modal>
-
-        {/* Manage Requests Modal */}
-        <Modal open={manageOpen} onClose={() => { setManageOpen(false); setManagingTrip(null); }}>
-          <div className="p-2 space-y-6">
-            <div>
-              <h2 className='text-2xl font-extrabold text-gray-900'>Join Requests</h2>
-              <p className="text-gray-500 text-sm mt-1">Travelers wanting to join your trip to {managingTrip?.destination}</p>
-            </div>
-            
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-              {managingTrip?.joinRequests?.map(reqUser => (
-                <div key={reqUser._id || reqUser.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <img src={reqUser.profileImage || `https://api.dicebear.com/7.x/notionists/svg?seed=${reqUser.name}`} alt={reqUser.name} className="w-12 h-12 rounded-full border border-gray-200 bg-white" />
-                    <div>
-                      <p className="font-bold text-gray-900 leading-tight">{reqUser.name}</p>
-                      <p className="text-xs text-gray-500 line-clamp-1">{reqUser.bio || "No bio available."}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleRequest(managingTrip._id || managingTrip.id, reqUser._id || reqUser.id, 'accept')} className="w-10 h-10 rounded-xl bg-green-100 text-green-700 hover:bg-green-200 flex items-center justify-center transition-colors" title="Accept"><CheckIcon className="w-6 h-6"/></button>
-                    <button onClick={() => handleRequest(managingTrip._id || managingTrip.id, reqUser._id || reqUser.id, 'reject')} className="w-10 h-10 rounded-xl bg-red-100 text-red-700 hover:bg-red-200 flex items-center justify-center transition-colors" title="Decline"><XMarkIcon className="w-6 h-6"/></button>
-                  </div>
-                </div>
-              ))}
-              {(!managingTrip?.joinRequests || managingTrip.joinRequests.length === 0) && (
-                <div className="text-center p-8 text-gray-500">No pending requests right now.</div>
-              )}
-            </div>
-          </div>
         </Modal>
       </div>
     </div>
